@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#080d19" />
+    <title>SLIZARIO — Neon Serpents</title>
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <canvas id="arena" aria-label="Игровая арена Slizario"></canvas>
+    <div id="hud">
+      <header class="topbar">
+        <a class="brand" href="#" id="brand"
+          ><span class="brand-icon">S</span> SLIZARIO
+          <span class="tag">NEON SERPENTS</span></a
+        >
+        <div class="top-actions">
+          <span class="live"><i></i> ЛОКАЛЬНАЯ АРЕНА</span
+          ><button
+            class="icon-btn"
+            id="pauseBtn"
+            title="Пауза · Space"
+            aria-label="Пауза"
+          >
+            Ⅱ</button
+          ><button
+            class="icon-btn"
+            id="settingsBtn"
+            title="Настройки · Esc"
+            aria-label="Настройки"
+          >
+            ⚙
+          </button>
+        </div>
+      </header>
+      <section class="stats glass">
+        <span class="eyebrow"
+          >ВАШ БАЛАНС <span id="modeBadge">БЕССМЕРТИЕ</span></span
+        >
+        <div class="balance" id="balanceValue">$0</div>
+        <div class="stat-bottom">
+          <span><b id="massValue">0</b> масса</span
+          ><span><b id="killsValue">0</b> побед</span
+          ><span id="rankValue">#1</span>
+        </div>
+        <div class="cash-progress"><div id="cashProgress"></div></div>
+        <button id="cashBtn" class="cash-btn" disabled>
+          <span class="arrow-icon" aria-hidden="true"></span> &nbsp; CASH OUT
+          <small id="cashHint"></small>
+        </button>
+      </section>
+      <aside class="leaderboard glass">
+        <div class="section-title">
+          <span>ЛИДЕРЫ АРЕНЫ</span><span class="mini-dot"></span>
+        </div>
+        <div id="leaderRows"></div>
+        <div class="leader-footer">
+          <span id="population">0 змеек</span><span id="fps">60 FPS</span>
+        </div>
+      </aside>
+      <div class="bottom-left">
+        <div class="map-frame glass">
+          <canvas id="minimap" width="150" height="150"></canvas
+          ><span id="mapLabel">NEON ARENA</span>
+        </div>
+        <div class="record-label" id="recordLabel">
+          ● РЕЖИМ ЗАПИСИ <kbd>V</kbd>
+        </div>
+      </div>
+      <footer class="controls glass">
+        <button id="autoBtn">
+          <span class="control-icon">◎</span
+          ><span>Автопилот <b id="autoState">ВЫКЛ</b></span
+          ><kbd>A</kbd></button
+        ><span class="divider"></span
+        ><span class="control-help"
+          ><span class="mouse-icon">↖</span> Курсор — направление
+          <span class="key-hint"><kbd>ЛКМ</kbd> ускорение</span></span
+        ><span class="divider"></span
+        ><button id="recordBtn" title="Режим OBS · V">
+          ◉ <span>Запись</span><kbd>V</kbd>
+        </button>
+      </footer>
+      <div class="zoom-controls glass">
+        <button id="zoomOut" aria-label="Отдалить">−</button
+        ><span id="zoomValue">100%</span
+        ><button id="zoomIn" aria-label="Приблизить">+</button>
+      </div>
+    </div>
+    <div id="recordExit" hidden><button>Вернуть интерфейс · V</button></div>
+    <div id="toast" role="status"></div>
+    <div class="overlay" id="welcome">
+      <section class="welcome-card glass">
+        <span class="eyebrow accent">ВАША АРЕНА. ВАШИ ПРАВИЛА.</span>
+        <h1>Думай быстро.<br />Расти <em>без границ.</em></h1>
+        <p>
+          Собирайте энергию, перехитрите соперников<br />и заберите свой
+          виртуальный выигрыш.
+        </p>
+        <div class="hero-snake">
+          <span>◉</span><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <label class="name-label"
+          >ИМЯ НА АРЕНЕ<input
+            id="playerName"
+            maxlength="20"
+            placeholder="Ваше имя"
+            value="Вы"
+        /></label>
+        <div class="welcome-choices">
+          <button id="welcomeMode" class="choice">◇ Бессмертие</button
+          ><button id="welcomeSkin" class="choice">◈ Выбрать скин</button>
+        </div>
+        <button class="primary" id="playBtn">Войти на арену</button
+        ><button class="text-btn" id="welcomeSettings">Настроить игру</button
+        ><small
+          >Без регистрации · Без реальных денег · Всё на вашем устройстве</small
+        >
+      </section>
+    </div>
+    <div class="overlay" id="settingsOverlay" hidden>
+      <section class="settings-panel glass">
+        <header class="settings-header">
+          <div>
+            <span class="eyebrow accent">ПОЛНЫЙ КОНТРОЛЬ</span>
+            <h2>Настройки арены</h2>
+          </div>
+          <button
+            class="icon-btn"
+            id="closeSettings"
+            aria-label="Закрыть настройки"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="settings-layout">
+          <nav id="settingsTabs" aria-label="Разделы настроек"></nav>
+          <div id="settingsContent"></div>
+        </div>
+        <footer class="settings-footer">
+          <span id="saveStatus">✓ Сохраняется автоматически</span
+          ><button id="resetBtn">Сбросить</button
+          ><button id="exportBtn">Экспорт JSON</button
+          ><button id="importBtn">Импорт</button
+          ><input
+            id="importFile"
+            type="file"
+            accept="application/json,.json"
+            hidden
+          />
+        </footer>
+      </section>
+    </div>
+    <div class="overlay" id="resultOverlay" hidden>
+      <section class="result-card glass">
+        <span class="eyebrow accent" id="resultLabel">ИГРА ЗАВЕРШЕНА</span>
+        <h2 id="resultTitle">Новая высота</h2>
+        <div id="resultAmount" class="result-amount"></div>
+        <div id="resultStats"></div>
+        <p id="resultNote"></p>
+        <button id="restartBtn" class="primary">Снова на арену ↗</button
+        ><button id="resultSettings" class="text-btn">Настройки</button>
+      </section>
+    </div>
+    <script src="js/settings.js"></script>
+    <script src="js/skins.js"></script>
+    <script src="js/maps.js"></script>
+    <script src="js/physics.js"></script>
+    <script src="js/snake.js"></script>
+    <script src="js/bots.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/balance.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
