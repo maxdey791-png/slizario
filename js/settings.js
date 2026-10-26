@@ -20,7 +20,7 @@ S.schema = {
     ["recordEffects", "Эффекты в режиме записи", "bool", true],
   ],
   Змейки: [
-    ["startMass", "Стартовая масса игрока", "range", 240, 60, 3000, 20],
+    ["startMass", "Стартовая масса игрока", "range", 120, 60, 3000, 20],
     ["speed", "Базовая скорость", "range", 150, 70, 260, 5],
     ["boostMultiplier", "Множитель ускорения", "range", 1.9, 1.1, 3, 0.1],
     ["boostCost", "Расход массы в секунду", "range", 12, 0, 60, 1],
@@ -76,8 +76,6 @@ S.schema = {
     ["transferShare", "Доля баланса соперника", "range", 1, 0, 1, 0.05],
     ["cashEnabled", "Включить Cash Out", "bool", true],
     ["cashMin", "Минимальный Cash Out", "number", 5000, 0, 1000000000000, 100],
-    ["cashContinue", "Продолжать игру после Cash Out", "bool", true],
-    ["cashReset", "Обнулять баланс после Cash Out", "bool", true],
   ],
   Валюта: [
     [
@@ -109,6 +107,12 @@ S.schema = {
         ["candy", "Candy Land"],
         ["cyber", "Cyber City"],
         ["classic", "Classic Pro"],
+        ["volcano", "Lava Volcano"],
+        ["clockwork", "Vintage Clockwork"],
+        ["underwater", "Underwater World"],
+        ["egypt", "Ancient Egypt"],
+        ["frozen", "Frozen Kingdom"],
+        ["jungle", "Jungle Temple"],
       ],
       "neon",
     ],
@@ -156,7 +160,7 @@ S.schema = {
     ["autoSafety", "Дистанция безопасности", "range", 1, 0.5, 2, 0.1],
   ],
 };
-S.defaults = { skin: "lime" };
+S.defaults = { skin: "lime", settingsVersion: 2 };
 Object.values(S.schema)
   .flat()
   .forEach((f) => (S.defaults[f[0]] = f[3]));
@@ -192,7 +196,15 @@ S.readStorage = function (k, fallback) {
     return fallback;
   }
 };
-S.config = S.sanitize(S.readStorage("slizario.config", {}));
+const storedConfig = S.readStorage("slizario.config", {});
+// Migrate only the old default size; custom sizes and all other settings survive.
+if (
+  storedConfig &&
+  storedConfig.settingsVersion !== 2 &&
+  storedConfig.startMass === 240
+)
+  storedConfig.startMass = 120;
+S.config = S.sanitize(storedConfig);
 S.listeners = [];
 S.save = function () {
   try {

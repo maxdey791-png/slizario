@@ -54,7 +54,7 @@ S.driveAI = function (s, game, dt) {
   const ahead = 90 + (s.boost ? 80 : 0),
     px = s.x + Math.cos(s.angle) * ahead,
     py = s.y + Math.sin(s.angle) * ahead;
-  const near = game.bodyGrid.query(px, py, 135 * safety + s.radius);
+  const near = game.bodyGrid.query(px, py, 135 * safety + s.radius, s.aiNear);
   for (const b of near) {
     if (b.snake === s || !b.snake.alive) continue;
     const dx = px - b.x,
@@ -77,11 +77,12 @@ S.driveAI = function (s, game, dt) {
     danger = Math.max(danger, 1 - wallDist / 280);
   }
   let target = null;
-  const opponents = game.snakes.filter((o) => o !== s && o.alive);
+  const opponents = game.snakes;
   let enemy = null,
     enemyScore = 0;
   if (aggression > 0.05)
     for (const o of opponents) {
+      if (o === s || !o.alive) continue;
       const dist = Math.hypot(o.x - s.x, o.y - s.y);
       if (dist < 650 && dist > 65) {
         const score =
@@ -118,7 +119,7 @@ S.driveAI = function (s, game, dt) {
       s.aiMode = "hunt";
     }
   } else {
-    const food = game.foodGrid.query(s.x, s.y, 650);
+    const food = game.foodGrid.query(s.x, s.y, 650, s.aiFood);
     let best = Infinity;
     for (const f of food) {
       if (f.eaten) continue;

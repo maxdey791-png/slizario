@@ -7,6 +7,9 @@ S.Renderer = class {
     this.height = innerHeight;
     this.dpr = 1;
     this.sprites = new Map();
+    this.mapTiles = new Map();
+    this.stamps = new Map();
+    this.ordered = [];
     this.resize();
   }
   resize() {
@@ -16,11 +19,12 @@ S.Renderer = class {
       devicePixelRatio || 1,
       S.config.quality === "high" ? 2 : 1,
     );
+    this.vignette = null;
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
   }
-  sprite(color, glow) {
-    const key = color + glow;
+  sprite(color, glow, decor = "") {
+    const key = color + glow + decor;
     let cv = this.sprites.get(key);
     if (cv) return cv;
     cv = document.createElement("canvas");
@@ -43,6 +47,36 @@ S.Renderer = class {
     x.beginPath();
     x.arc(30, 30, glow ? 2 : 4, 0, Math.PI * 2);
     x.fill();
+    if (
+      [
+        "volcano",
+        "clockwork",
+        "underwater",
+        "egypt",
+        "frozen",
+        "jungle",
+      ].includes(decor)
+    ) {
+      x.strokeStyle = color;
+      x.lineWidth = 1.8;
+      const k = glow ? 7 : 13;
+      x.beginPath();
+      if (decor === "underwater") x.arc(32, 32, k, 0, Math.PI * 2);
+      else if (decor === "clockwork") {
+        x.arc(32, 32, k, 0, Math.PI * 2);
+        x.moveTo(32, 32 - k);
+        x.lineTo(32, 32 + k);
+      } else if (decor === "jungle") {
+        x.ellipse(32, 32, k * 0.55, k * 1.4, 0.5, 0, Math.PI * 2);
+      } else {
+        x.moveTo(32, 32 - k * 1.4);
+        x.lineTo(32 + k * 0.8, 32);
+        x.lineTo(32, 32 + k * 1.4);
+        x.lineTo(32 - k * 0.8, 32);
+        x.closePath();
+      }
+      x.stroke();
+    }
     this.sprites.set(key, cv);
     return cv;
   }
@@ -71,8 +105,10 @@ S.Renderer = class {
       t: cam.y - h / 2 / z,
       b: cam.y + h / 2 / z,
     };
+    this.currentZoom = z;
     const fx = c.effects * (game.recording && !c.recordEffects ? 0 : 1);
-    this.drawMap(ctx, theme, game.time, fx);
+    this.drawCachedMap(ctx, theme, fx);
+    S.drawAtmosphere?.(ctx, theme, this.bounds, game.time, fx);
     const colors = theme.food;
     const glow = c.glow && c.quality !== "low" && fx > 0;
     for (const f of game.food) {
@@ -82,7 +118,7 @@ S.Renderer = class {
       const size = glow ? radius * 7 : radius * 2.6;
       const pulse = 1 + Math.sin(game.time * 2 + f.phase) * 0.12 * fx;
       ctx.drawImage(
-        this.sprite(color, glow),
+        this.sprite(color, glow, theme.decor),
         f.x - (size * pulse) / 2,
         f.y - (size * pulse) / 2,
         size * pulse,
@@ -97,9 +133,10 @@ S.Renderer = class {
         ctx.stroke();
       }
     }
-    const ordered = game.snakes
-      .filter((s) => s.alive)
-      .sort((a, b) => a.mass - b.mass);
+    const ordered = this.ordered;
+    ordered.length = 0;
+    for (const snake of game.snakes) if (snake.alive) ordered.push(snake);
+    ordered.sort((a, b) => a.mass - b.mass);
     for (const s of ordered) {
       if (
         s.points.some(
@@ -129,16 +166,21 @@ S.Renderer = class {
           : "rgba(220,235,255," + (c.brightness - 1) * 0.3 + ")";
       ctx.fillRect(0, 0, w, h);
     }
-    const vignette = ctx.createRadialGradient(
-      w / 2,
-      h / 2,
-      Math.min(w, h) * 0.2,
-      w / 2,
-      h / 2,
-      Math.max(w, h) * 0.65,
-    );
-    vignette.addColorStop(0, "#00000000");
-    vignette.addColorStop(1, "#02061066");
+    const vignette =
+      this.vignette ||
+      ctx.createRadialGradient(
+        w / 2,
+        h / 2,
+        Math.min(w, h) * 0.2,
+        w / 2,
+        h / 2,
+        Math.max(w, h) * 0.65,
+      );
+    if (!this.vignette) {
+      vignette.addColorStop(0, "#00000000");
+      vignette.addColorStop(1, "#02061066");
+      this.vignette = vignette;
+    }
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, w, h);
   }
@@ -146,10 +188,10 @@ S.Renderer = class {
     const b = this.bounds;
     const step = t.decor === "city" ? 240 : 180;
     if (t.decor === "stars" && fx > 0) {
-      const gx = Math.floor(b.l / 900),
-        gy = Math.floor(b.t / 900);
-      for (let x = gx; x <= Math.floor(b.r / 900); x++)
-        for (let y = gy; y <= Math.floor(b.b / 900); y++) {
+      const gx = Math.floor(b.l / 900) - 1,
+        gy = Math.floor(b.t / 900) - 1;
+      for (let x = gx; x <= Math.floor(b.r / 900) + 1; x++)
+        for (let y = gy; y <= Math.floor(b.b / 900) + 1; y++) {
           const cx = x * 900 + 450,
             cy = y * 900 + 450,
             g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 600);
@@ -283,6 +325,7 @@ S.Renderer = class {
           ctx.stroke();
         }
       }
+    S.drawWorldDecor?.(ctx, t, b, fx);
     const r = S.config.worldRadius;
     ctx.strokeStyle = t.accent + "44";
     ctx.lineWidth = 5;
@@ -294,52 +337,143 @@ S.Renderer = class {
     ctx.stroke();
     ctx.lineWidth = 1;
   }
-  path(ctx, s) {
-    ctx.beginPath();
-    const a = s.points;
-    ctx.moveTo(a[a.length - 1].x, a[a.length - 1].y);
-    for (let i = a.length - 2; i >= 0; i--) ctx.lineTo(a[i].x, a[i].y);
+  drawCachedMap(ctx, theme, fx) {
+    const bounds = this.bounds,
+      tileSize = 512;
+    // Rasterize at or above display density; zoom and high-DPI resolution are preserved.
+    const density = this.dpr * 2 ** Math.ceil(Math.log2(this.currentZoom || 1));
+    const signature = [theme.decor, fx, S.config.worldRadius, density].join(
+      ":",
+    );
+    if (signature !== this.tileSignature) {
+      this.mapTiles.clear();
+      this.tileSignature = signature;
+    }
+    for (
+      let x = Math.floor(bounds.l / tileSize);
+      x <= Math.floor(bounds.r / tileSize);
+      x++
+    )
+      for (
+        let y = Math.floor(bounds.t / tileSize);
+        y <= Math.floor(bounds.b / tileSize);
+        y++
+      ) {
+        const key = x + "," + y;
+        let tile = this.mapTiles.get(key);
+        if (!tile) {
+          tile = document.createElement("canvas");
+          tile.width = tile.height = Math.ceil(tileSize * density);
+          const pen = tile.getContext("2d");
+          pen.scale(density, density);
+          pen.translate(-x * tileSize, -y * tileSize);
+          this.bounds = {
+            l: x * tileSize,
+            r: (x + 1) * tileSize,
+            t: y * tileSize,
+            b: (y + 1) * tileSize,
+          };
+          this.drawMap(pen, theme, 0, fx);
+          this.bounds = bounds;
+          this.mapTiles.set(key, tile);
+        } else {
+          this.mapTiles.delete(key);
+          this.mapTiles.set(key, tile);
+        }
+        ctx.drawImage(tile, x * tileSize, y * tileSize, tileSize, tileSize);
+      }
+    // Bounded LRU, with enough space for the visible area even at minimum zoom.
+    const limit = Math.max(
+      32,
+      Math.ceil((bounds.r - bounds.l) / tileSize + 2) *
+        Math.ceil((bounds.b - bounds.t) / tileSize + 2),
+    );
+    while (this.mapTiles.size > limit)
+      this.mapTiles.delete(this.mapTiles.keys().next().value);
+  }
+  stamp(s, flag = false) {
+    const r = Math.round(s.radius * 4) / 4,
+      density = this.dpr * Math.max(1, this.currentZoom || 1),
+      image = flag ? S.getFlag(s.skin) : null;
+    if (flag && !image) return null;
+    const key = [s.skin, r, flag, Math.ceil(density)].join(":");
+    let stamp = this.stamps.get(key);
+    if (stamp) return stamp;
+    const size = r * 3,
+      pixelRatio = Math.ceil(density),
+      canvas = document.createElement("canvas");
+    canvas.width = canvas.height = Math.ceil(size * pixelRatio);
+    const pen = canvas.getContext("2d");
+    pen.scale(pixelRatio, pixelRatio);
+    pen.translate(size / 2, size / 2);
+    const colors = S.skinColor(s.skin);
+    if (flag) {
+      pen.beginPath();
+      pen.roundRect(-r * 1.4, -r * 0.83, r * 2.8, r * 1.66, r * 0.65);
+      pen.clip();
+      pen.drawImage(image, -r * 1.4, -r * 0.83, r * 2.8, r * 1.66);
+      pen.fillStyle = "#ffffff18";
+      pen.fillRect(-r * 1.4, -r * 0.83, r * 2.8, r * 0.4);
+    } else {
+      pen.fillStyle = colors[0];
+      pen.beginPath();
+      pen.arc(0, 0, r * 0.89, 0, Math.PI * 2);
+      pen.fill();
+      pen.fillStyle = colors[1];
+      pen.globalAlpha = 0.18;
+      pen.beginPath();
+      pen.arc(0, r * 0.37, r * 0.68, 0, Math.PI * 2);
+      pen.fill();
+    }
+    stamp = { canvas, size };
+    this.stamps.set(key, stamp);
+    if (this.stamps.size > 192)
+      this.stamps.delete(this.stamps.keys().next().value);
+    return stamp;
   }
   drawSnake(ctx, s, game, fx) {
     const p = s.points,
       r = s.radius,
       colors = S.skinColor(s.skin),
       boost = s.boostVisual;
+    const bodyPath = new Path2D();
+    bodyPath.moveTo(p[p.length - 1].x, p[p.length - 1].y);
+    for (let i = p.length - 2; i >= 0; i--) bodyPath.lineTo(p[i].x, p[i].y);
+
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     if (boost > 0.08 && fx > 0) {
       ctx.strokeStyle = colors[0];
       ctx.globalAlpha = boost * 0.13 * fx;
       ctx.lineWidth = r * 3.6;
-      this.path(ctx, s);
-      ctx.stroke();
+      ctx.stroke(bodyPath);
       ctx.globalAlpha = 1;
     }
     ctx.strokeStyle = "#030912aa";
     ctx.lineWidth = r * 2 + 5;
-    this.path(ctx, s);
-    ctx.stroke();
+    ctx.stroke(bodyPath);
     ctx.strokeStyle = colors[1];
     ctx.lineWidth = r * 2;
-    this.path(ctx, s);
-    ctx.stroke();
-    // Overlapping shaded scales keep the ribbon rounded without a per-segment shadow blur.
+    ctx.stroke(bodyPath);
+    // Batch identical materials into two paths, preserving smooth full-resolution scales.
+    const highlights = new Path2D(),
+      shading = new Path2D();
     for (let i = p.length - 1; i >= 0; i -= 2) {
       const q = p[i];
       if (!this.visible(q.x, q.y, r * 3)) continue;
       const taper = i > p.length - 7 ? Math.max(0.25, (p.length - i) / 7) : 1;
-      ctx.fillStyle = colors[0];
-      ctx.beginPath();
-      ctx.arc(q.x, q.y, r * 0.89 * taper, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = colors[1];
-      ctx.globalAlpha = 0.18;
-      ctx.beginPath();
-      ctx.arc(q.x, q.y + r * 0.37, r * 0.68 * taper, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      highlights.moveTo(q.x + r * 0.89 * taper, q.y);
+      highlights.arc(q.x, q.y, r * 0.89 * taper, 0, Math.PI * 2);
+      shading.moveTo(q.x + r * 0.68 * taper, q.y + r * 0.37);
+      shading.arc(q.x, q.y + r * 0.37, r * 0.68 * taper, 0, Math.PI * 2);
     }
-    const flag = S.getFlag(s.skin);
+    ctx.fillStyle = colors[0];
+    ctx.fill(highlights);
+    ctx.fillStyle = colors[1];
+    ctx.globalAlpha = 0.18;
+    ctx.fill(shading);
+    ctx.globalAlpha = 1;
+    const flag = this.stamp(s, true);
     if (flag) {
       for (let i = 3; i < p.length - 3; i += 7) {
         const q = p[i];
@@ -349,12 +483,13 @@ S.Renderer = class {
         ctx.save();
         ctx.translate(q.x, q.y);
         ctx.rotate(angle);
-        ctx.beginPath();
-        ctx.roundRect(-r * 1.4, -r * 0.83, r * 2.8, r * 1.66, r * 0.65);
-        ctx.clip();
-        ctx.drawImage(flag, -r * 1.4, -r * 0.83, r * 2.8, r * 1.66);
-        ctx.fillStyle = "#ffffff18";
-        ctx.fillRect(-r * 1.4, -r * 0.83, r * 2.8, r * 0.4);
+        ctx.drawImage(
+          flag.canvas,
+          -flag.size / 2,
+          -flag.size / 2,
+          flag.size,
+          flag.size,
+        );
         ctx.restore();
       }
     }

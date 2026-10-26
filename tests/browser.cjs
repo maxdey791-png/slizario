@@ -70,7 +70,7 @@ const server = http.createServer((req, res) => {
   }
   async function fresh(overrides = {}) {
     await page.evaluate((o) => {
-      S.replace({ ...S.defaults, ...o });
+      S.replace({ ...S.defaults, startMass: 240, ...o });
       slizario.reset(true);
       slizario.menuOpen = true;
       slizario.paused = false;
@@ -274,47 +274,92 @@ const server = http.createServer((req, res) => {
       assert.equal(r.balance, 1000);
       assert(r.mass > 240 && !r.cash);
     });
-    await test("Cash Out threshold, reset and continuation", async () => {
-      await fresh({ cashMin: 1000, botCount: 0 });
+    await test("Cash Out ends the round and restarts fresh", async () => {
+      await fresh({ startMass: 120, cashMin: 2000, botCount: 0 });
       await page.evaluate(() => {
-        slizario.menuOpen = false;
+        slizario.player.mass = 900;
+        slizario.player.balance = 2500;
         slizario.onHUD();
       });
       await page.click("#cashBtn");
-      assert.equal(
-        await page.locator("#resultLabel").textContent(),
-        "ВИРТУАЛЬНЫЙ CASH OUT",
-      );
-      assert.equal(await page.evaluate(() => slizario.player.balance), 0);
-      await page.click("#restartBtn");
-      assert(
-        await page.evaluate(
-          () =>
-            !slizario.paused &&
-            slizario.player.alive &&
-            slizario.player.balance === 0,
-        ),
-      );
-    });
-    await test("Cash Out can preserve balance and finish the run", async () => {
-      await fresh({
-        cashMin: 1000,
-        cashReset: false,
-        cashContinue: false,
-        botCount: 0,
-      });
-      await page.evaluate(() => {
-        slizario.menuOpen = false;
-        slizario.onHUD();
-      });
-      await page.click("#cashBtn");
-      assert.equal(await page.evaluate(() => slizario.player.balance), 1000);
       assert.equal(
         await page.locator("#restartBtn").textContent(),
-        "Снова на арену",
+        "Играть снова",
       );
+      const snapshot = await page.evaluate(() => ({
+        mass: slizario.player.mass,
+        balance: slizario.player.balance,
+        time: slizario.time,
+        ended: slizario.roundEnded,
+      }));
+      assert(snapshot.ended);
+      assert.equal(snapshot.mass, 900);
+      assert.equal(snapshot.balance, 2500);
+      await page.evaluate(() => {
+        slizario.paused = false;
+        for (let i = 0; i < 30; i++) slizario.update(1 / 60);
+      });
+      assert.equal(await page.evaluate(() => slizario.time), snapshot.time);
+      assert.equal(await page.evaluate(() => S.canCashOut(slizario)), false);
       await page.click("#restartBtn");
-      assert.equal(await page.evaluate(() => slizario.runCashed), 0);
+      const state = await page.evaluate(() => ({
+        ended: slizario.roundEnded,
+        mass: slizario.player.mass,
+        balance: slizario.player.balance,
+        run: slizario.runCashed,
+      }));
+      assert(!state.ended);
+      assert.equal(state.mass, 120);
+      assert.equal(state.balance, 1000);
+      assert.equal(state.run, 0);
+    });
+    await test("Progress is relative to round start and supports every currency", async () => {
+      await fresh({ botCount: 0, startBalance: 1000, cashMin: 5000 });
+      const r = await page.evaluate(() => {
+        const g = slizario,
+          values = [];
+        for (const balance of [1000, 3000, 5000, 9000]) {
+          g.player.balance = balance;
+          g.onHUD();
+          values.push(S.cashProgress(g));
+        }
+        const currencies = [];
+        for (const currency of [
+          "USD",
+          "EUR",
+          "RUB",
+          "PHP",
+          "THB",
+          "IDR",
+          "VND",
+          "CUSTOM",
+        ]) {
+          S.change("currency", currency);
+          g.onHUD();
+          currencies.push(
+            document.getElementById("goalTarget").textContent ===
+              S.format(5000),
+          );
+        }
+        S.change("showCurrency", false);
+        g.onHUD();
+        const plain = document.getElementById("goalTarget").textContent;
+        S.change("startBalance", 9000);
+        const unchanged = g.roundStartBalance;
+        S.change("cashMin", 1000);
+        return {
+          values,
+          currencies,
+          plain,
+          unchanged,
+          zero: S.cashProgress(g),
+        };
+      });
+      assert.deepEqual(r.values, [0, 0.5, 1, 1]);
+      assert(r.currencies.every(Boolean));
+      assert.equal(r.plain, "5,000");
+      assert.equal(r.unchanged, 1000);
+      assert.equal(r.zero, 1);
     });
     await test("All settings tabs, live changes, save and reload", async () => {
       await page.click("#settingsBtn");
@@ -333,7 +378,7 @@ const server = http.createServer((req, res) => {
         ["RUB", 7],
       );
     });
-    await test("249 offline ISO flags and six distinct map renderings", async () => {
+    await test("249 offline ISO flags and twelve distinct map renderings", async () => {
       const r = await page.evaluate(async () => {
         const g = slizario;
         g.menuOpen = true;
@@ -364,7 +409,67 @@ const server = http.createServer((req, res) => {
       });
       assert.equal(r.count, 249);
       assert(r.flags);
-      assert(r.maps >= 5);
+      assert(r.maps >= 11);
+    });
+    await test("New themes have distinct geometry with equalized colors", async () => {
+      const fingerprints = await page.evaluate(() => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 400;
+        const pen = canvas.getContext("2d"),
+          result = [];
+        for (const id of [
+          "volcano",
+          "clockwork",
+          "underwater",
+          "egypt",
+          "frozen",
+          "jungle",
+        ]) {
+          pen.clearRect(0, 0, 400, 400);
+          const theme = {
+            ...S.themes[id],
+            bg: "#111111",
+            grid: "#999999",
+            accent: "#ffffff",
+          };
+          S.drawWorldDecor(pen, theme, { l: 0, r: 400, t: 0, b: 400 }, 0.7);
+          const data = pen.getImageData(0, 0, 400, 400).data;
+          let hash = 2166136261,
+            count = 0;
+          for (let i = 3; i < data.length; i += 4) {
+            hash = Math.imul(hash ^ data[i], 16777619) >>> 0;
+            if (data[i]) count++;
+          }
+          result.push({ hash, count });
+        }
+        return result;
+      });
+      assert.equal(new Set(fingerprints.map((f) => f.hash)).size, 6);
+      assert(fingerprints.every((f) => f.count > 500));
+    });
+    await test("Smaller default snake, growth and preserved camera settings", async () => {
+      const r = await page.evaluate(() => {
+        const p = new S.Snake(0, 0, S.defaults.startMass, "lime", "test", true);
+        const oldRadius = 9 + Math.sqrt(240) * 0.26;
+        const ratio =
+          (p.segmentCount * p.spacing) /
+          ((Math.floor(16 + 240 / 13) - 1) * oldRadius * 0.63);
+        const before = { radius: p.radius, length: p.segmentCount };
+        S.rewardFood(p, 500);
+        return {
+          ratio,
+          thinner: before.radius < oldRadius,
+          grown: p.radius > before.radius && p.segmentCount > before.length,
+          camera: [
+            S.defaults.autoZoom,
+            S.defaults.zoom,
+            S.defaults.cameraSmooth,
+          ],
+        };
+      });
+      assert(r.ratio > 0.58 && r.ratio < 0.72);
+      assert(r.thinner && r.grown);
+      assert.deepEqual(r.camera, [true, 1, 5]);
     });
     await test("Camera wheel, zoom bounds and clean OBS mode", async () => {
       await page.click("#playBtn");
@@ -399,22 +504,20 @@ const server = http.createServer((req, res) => {
         page.click("#exportBtn"),
       ]);
       assert.equal(download.suggestedFilename(), "slizario-config.json");
-      await page
-        .locator("#importFile")
-        .setInputFiles({
-          name: "config.json",
-          mimeType: "application/json",
-          buffer: Buffer.from(
-            JSON.stringify({
-              version: 1,
-              settings: {
-                ...(await page.evaluate(() => S.defaults)),
-                currency: "THB",
-                botCount: 3,
-              },
-            }),
-          ),
-        });
+      await page.locator("#importFile").setInputFiles({
+        name: "config.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(
+          JSON.stringify({
+            version: 1,
+            settings: {
+              ...(await page.evaluate(() => S.defaults)),
+              currency: "THB",
+              botCount: 3,
+            },
+          }),
+        ),
+      });
       await page.waitForFunction(
         () => S.config.currency === "THB" && S.config.botCount === 3,
       );
@@ -485,6 +588,240 @@ const server = http.createServer((req, res) => {
     });
     await test("No external network requests during HTTP gameplay", async () =>
       assert.deepEqual(external, []));
+    const mobileContext = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 3,
+    });
+    const mobile = await mobileContext.newPage();
+    mobile.on("pageerror", (e) => errors.push(e.message));
+    await mobile.goto("http://127.0.0.1:" + server.address().port);
+    await mobile.tap("#playBtn");
+    await mobile.evaluate(() => {
+      S.change("botCount", 0);
+      S.change("foodCount", 400);
+    });
+    const cdp = await mobileContext.newCDPSession(mobile);
+    await test("Mobile multitouch: simultaneous steering, boost and independent release", async () => {
+      const pad = await mobile.locator("#joystick").boundingBox(),
+        boost = await mobile.locator("#touchBoost").boundingBox();
+      const steer = {
+          x: pad.x + pad.width / 2 + 32,
+          y: pad.y + pad.height / 2 - 30,
+          id: 1,
+        },
+        accelerator = {
+          x: boost.x + boost.width / 2,
+          y: boost.y + boost.height / 2,
+          id: 2,
+        };
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [steer],
+      });
+      await mobile.waitForFunction(() => slizario.touchInput.active);
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [steer, accelerator],
+      });
+      await mobile.waitForFunction(
+        () =>
+          slizario.touchInput.active &&
+          slizario.touchInput.boost &&
+          slizario.player.boost,
+      );
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [accelerator],
+      });
+      await mobile.waitForFunction(
+        () => slizario.touchInput.active && !slizario.touchInput.boost,
+      );
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchCancel",
+        touchPoints: [],
+      });
+      await mobile.waitForFunction(
+        () => !slizario.touchInput.active && !slizario.touchInput.boost,
+      );
+    });
+    await test("Mobile settings, flags, currency, difficulty, maps and no accidental scroll", async () => {
+      await mobile.tap("#autoBtn");
+      assert(await mobile.evaluate(() => S.config.autopilot));
+      await mobile.tap("#settingsBtn");
+      for (const tab of [
+        "Игра",
+        "Змейки",
+        "Боты",
+        "Баланс",
+        "Валюта",
+        "Карты",
+        "Камера",
+        "Графика",
+        "Автопилот",
+      ]) {
+        await mobile.getByRole("button", { name: new RegExp(tab + "$") }).tap();
+        await mobile.waitForFunction(
+          (t) => document.querySelector(".tab-heading").textContent === t,
+          tab,
+        );
+      }
+      await mobile.getByRole("button", { name: /Змейки$/ }).tap();
+      await mobile.getByRole("button", { name: "Россия", exact: true }).tap();
+      await mobile.getByRole("button", { name: /Боты$/ }).tap();
+      await mobile.selectOption("#setting-difficulty", "5");
+      await mobile.getByRole("button", { name: /Валюта$/ }).tap();
+      await mobile.selectOption("#setting-currency", "RUB");
+      await mobile.getByRole("button", { name: /Карты$/ }).tap();
+      await mobile
+        .getByRole("button", { name: "Underwater World", exact: true })
+        .tap();
+      await mobile.tap("#closeSettings");
+      assert(
+        await mobile.evaluate(
+          () =>
+            document.documentElement.scrollWidth === innerWidth &&
+            scrollY === 0,
+        ),
+      );
+      assert.deepEqual(
+        await mobile.evaluate(() => [
+          S.config.skin,
+          S.config.difficulty,
+          S.config.currency,
+          S.config.theme,
+        ]),
+        ["flag-ru", 5, "RUB", "underwater"],
+      );
+    });
+    await test("Mobile landscape exposes goal, settings, Cash Out and both controls", async () => {
+      await mobile.setViewportSize({ width: 844, height: 390 });
+      await mobile.waitForTimeout(100);
+      for (const id of [
+        "settingsBtn",
+        "cashBtn",
+        "joystick",
+        "touchBoost",
+        "autoBtn",
+        "cashGoal",
+      ]) {
+        const box = await mobile.locator("#" + id).boundingBox();
+        assert(
+          box &&
+            box.x >= 0 &&
+            box.y >= 0 &&
+            box.x + box.width <= 844 &&
+            box.y + box.height <= 390,
+          id + " on-screen",
+        );
+      }
+    });
+    await test("Mobile Cash Out completes the round and new settings persist", async () => {
+      await mobile.evaluate(() => {
+        S.change("cashMin", 1000);
+        slizario.player.balance = 2000;
+        slizario.onHUD();
+      });
+      await mobile.tap("#cashBtn");
+      assert(await mobile.evaluate(() => slizario.roundEnded));
+      await mobile.tap("#restartBtn");
+      assert(
+        await mobile.evaluate(
+          () =>
+            !slizario.roundEnded && slizario.player.mass === S.config.startMass,
+        ),
+      );
+      await mobile.reload();
+      assert.deepEqual(
+        await mobile.evaluate(() => [
+          S.config.skin,
+          S.config.difficulty,
+          S.config.currency,
+          S.config.theme,
+        ]),
+        ["flag-ru", 5, "RUB", "underwater"],
+      );
+    });
+    await test("Food grid removal and reuse never lose neighboring candidates", async () => {
+      const valid = await page.evaluate(() => {
+        const grid = new S.SpatialGrid(100),
+          points = Array.from({ length: 200 }, (_, i) => ({
+            x: (i % 20) * 23 - 200,
+            y: Math.floor(i / 20) * 31 - 100,
+          }));
+        for (const p of points) grid.insert(p);
+        for (let i = 0; i < points.length; i += 3) grid.remove(points[i]);
+        const expected = points.filter((_, i) => i % 3 !== 0);
+        const found = grid.query(0, 0, 100);
+        if (
+          !expected
+            .filter((p) => p.x * p.x + p.y * p.y <= 10000)
+            .every((p) => found.includes(p))
+        )
+          return false;
+        grid.clear();
+        for (const p of points) grid.insert(p);
+        return grid.query(0, 0, 1000).length === 200;
+      });
+      assert(valid);
+    });
+    await test("Large deaths are spread over steps without losing dropped mass", async () => {
+      await fresh({ botCount: 0 });
+      const r = await page.evaluate(() => {
+        const g = slizario;
+        for (let i = 0; i < 12; i++) {
+          const s = new S.Snake(1000 + i, 1000, 6000, "gold", "large");
+          g.snakes.push(s);
+          g.kill(s);
+        }
+        const pending = g.pendingDrops.length;
+        g.processDrops();
+        const first = g.food.length;
+        while (g.pendingDrops.length) g.processDrops();
+        return {
+          pending,
+          first,
+          total: g.food.reduce((n, f) => n + f.value, 0),
+        };
+      });
+      assert.equal(r.pending, 12);
+      assert.equal(r.first, 32);
+      assert(Math.abs(r.total - 12 * 4500) < 0.01);
+    });
+    await test("Legacy default size migrates while custom sizes and other settings survive", async () => {
+      await page.evaluate(() =>
+        localStorage.setItem(
+          "slizario.config",
+          JSON.stringify({ startMass: 240, currency: "EUR", botCount: 7 }),
+        ),
+      );
+      await page.reload();
+      assert.deepEqual(
+        await page.evaluate(() => [
+          S.config.startMass,
+          S.config.currency,
+          S.config.botCount,
+        ]),
+        [120, "EUR", 7],
+      );
+      await page.evaluate(() =>
+        localStorage.setItem(
+          "slizario.config",
+          JSON.stringify({ startMass: 500, currency: "THB", botCount: 9 }),
+        ),
+      );
+      await page.reload();
+      assert.deepEqual(
+        await page.evaluate(() => [
+          S.config.startMass,
+          S.config.currency,
+          S.config.botCount,
+        ]),
+        [500, "THB", 9],
+      );
+    });
+    await mobileContext.close();
     assert.deepEqual(errors, [], "No JavaScript errors");
     console.log(
       "\n" +

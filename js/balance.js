@@ -20,8 +20,17 @@ S.rewardKill = function (killer, victim) {
 S.canCashOut = (game) =>
   !!(
     game.started &&
+    !game.roundEnded &&
     game.player?.alive &&
     S.config.balanceEnabled &&
     S.config.cashEnabled &&
     game.player.balance >= S.config.cashMin
   );
+
+// Progress is measured from the opening balance of this round, not from zero.
+S.cashProgress = (game) => {
+  const start = game.roundStartBalance,
+    goal = S.config.cashMin;
+  if (goal <= start) return game.player.balance >= goal ? 1 : 0;
+  return S.clamp((game.player.balance - start) / (goal - start), 0, 1);
+};

@@ -5,9 +5,9 @@
   window.slizario = game;
   let toastTimer,
     activeTab = "Игра",
-    restoreResult = false,
-    resultKind = "death",
-    resultContinue = false;
+    restoreResult = false;
+  let leaderSignature = "";
+  S.bindTouch(game);
   S.toast = function (message) {
     $("toast").textContent = message;
     $("toast").classList.add("show");
@@ -44,8 +44,15 @@
     $("cashBtn").disabled = !S.canCashOut(game);
     $("cashHint").textContent =
       p.balance < c.cashMin ? "от " + S.format(c.cashMin) : "доступен";
-    $("cashProgress").style.width =
-      (c.cashMin > 0 ? S.clamp(p.balance / c.cashMin, 0, 1) * 100 : 100) + "%";
+    const progress = S.cashProgress(game),
+      percent = Math.round(progress * 100);
+    $("cashProgress").style.width = percent + "%";
+    $("cashGoal").hidden = !c.cashEnabled || !c.balanceEnabled;
+    $("goalCurrent").textContent = S.format(p.balance);
+    $("goalTarget").textContent = S.format(c.cashMin);
+    $("goalFill").style.transform = "scaleX(" + progress + ")";
+    $("goalPercent").textContent = percent + "%";
+    $("goalTrack").setAttribute("aria-valuenow", percent);
     const sorted = game.snakes
       .filter((s) => s.alive)
       .sort((a, b) =>
@@ -55,26 +62,42 @@
     const leaders = sorted.slice(0, 5);
     if (p.alive && !leaders.includes(p) && leaders.length)
       leaders[leaders.length - 1] = p;
-    const frag = document.createDocumentFragment();
-    for (const s of leaders) {
-      const row = node("div", "leader-row" + (s.player ? " me" : ""));
-      row.append(node("span", "leader-rank", sorted.indexOf(s) + 1));
-      const dot = node("i", "leader-dot");
-      dot.style.background = S.skinColor(s.skin)[0];
-      row.append(
-        dot,
-        node("span", "leader-name", s.name),
-        node(
-          "span",
-          "leader-money",
+    const signature = leaders
+      .map((s) =>
+        [
+          s.id,
+          s.name,
+          s.skin,
+          sorted.indexOf(s),
           c.balanceEnabled
             ? S.format(s.displayBalance, true)
             : Math.floor(s.mass),
-        ),
-      );
-      frag.append(row);
+        ].join(":"),
+      )
+      .join("|");
+    if (signature !== leaderSignature) {
+      leaderSignature = signature;
+      const frag = document.createDocumentFragment();
+      for (const s of leaders) {
+        const row = node("div", "leader-row" + (s.player ? " me" : ""));
+        row.append(node("span", "leader-rank", sorted.indexOf(s) + 1));
+        const dot = node("i", "leader-dot");
+        dot.style.background = S.skinColor(s.skin)[0];
+        row.append(
+          dot,
+          node("span", "leader-name", s.name),
+          node(
+            "span",
+            "leader-money",
+            c.balanceEnabled
+              ? S.format(s.displayBalance, true)
+              : Math.floor(s.mass),
+          ),
+        );
+        frag.append(row);
+      }
+      $("leaderRows").replaceChildren(frag);
     }
-    $("leaderRows").replaceChildren(frag);
     $("population").textContent = sorted.length + " змеек";
     $("fps").hidden = !c.showFps;
     $("fps").textContent = Math.round(game.fps) + " FPS";
@@ -100,6 +123,7 @@
   }
   game.onHUD = refreshHUD;
   function start() {
+    S.releaseTouch();
     game.reset(true);
     $("welcome").hidden = true;
     $("resultOverlay").hidden = true;
@@ -115,6 +139,7 @@
   function openSettings(tab) {
     if (tab) activeTab = tab;
     game.pointer.down = false;
+    S.releaseTouch();
     restoreResult = !$("resultOverlay").hidden;
     $("resultOverlay").hidden = true;
     game.menuOpen = true;
@@ -147,7 +172,6 @@
       doubleBoost: "Двойной клик даёт короткое ускорение",
       autoSafety: "Большое значение — более осторожное движение",
       quality: "Ограничивает плотность пикселей и эффекты",
-      cashReset: "Иначе ту же виртуальную сумму можно вывести повторно",
     };
     if (hints[key]) lab.append(node("small", "", hints[key]));
     row.append(lab);
@@ -234,7 +258,7 @@
         "Настройте виртуальную экономику арены. Реальных денежных операций нет.",
       Валюта: "Символ меняет только оформление виртуального баланса.",
       Карты:
-        "Шесть миров с разным окружением и частицами. Переключайтесь прямо во время игры.",
+        "Двенадцать миров с разным окружением и частицами. Переключайтесь прямо во время игры.",
       Камера:
         "Колёсико мыши меняет масштаб. Автомасштабирование учитывает рост змейки.",
       Графика:
@@ -251,6 +275,7 @@
           "theme-option" + (id === S.config.theme ? " selected" : ""),
           t.name,
         );
+        b.setAttribute("aria-label", t.name);
         b.style.setProperty(
           "--theme",
           "linear-gradient(135deg," + t.grid + "," + t.bg + ")",
@@ -274,7 +299,7 @@
         node(
           "div",
           "notice",
-          "Cash Out — визуальное получение виртуальных очков. Если продолжение отключено, после анимации можно начать новую игру.",
+          "Cash Out завершает раунд. «Играть снова» возвращает стартовый размер и начальный виртуальный баланс.",
         ),
       );
     $("saveStatus").textContent = S.storageOK
@@ -420,8 +445,7 @@
     fill();
   }
   function showResult(kind, amount, reason) {
-    resultKind = kind;
-    resultContinue = kind === "cash" && S.config.cashContinue;
+    S.releaseTouch();
     game.paused = true;
     game.pointer.down = false;
     $("resultOverlay").hidden = false;
@@ -447,14 +471,18 @@
       " на арене";
     $("resultNote").textContent =
       kind === "cash"
-        ? "Виртуальные очки получены. " +
-          (S.config.cashReset ? "Баланс обнулён." : "Баланс сохранён.")
+        ? "Виртуальный выигрыш получен. Раунд завершён. Новая игра начнётся со стартового размера и баланса."
         : reason || "Попробуйте другой маршрут или включите бессмертие.";
-    $("restartBtn").textContent = resultContinue
-      ? "Продолжить игру"
-      : "Снова на арену";
+    $("restartBtn").textContent =
+      kind === "cash" ? "Играть снова" : "Снова на арену";
+    if (game.recording) {
+      game.recording = false;
+      document.body.classList.remove("recording", "hide-cursor");
+      $("recordExit").hidden = true;
+    }
   }
   game.onDeath = (p, reason) => {
+    game.endRound();
     showResult("death", p.balance, reason);
   };
   $("cashBtn").onclick = () => {
@@ -462,17 +490,12 @@
     const amount = game.player.balance;
     game.totalCashed += amount;
     game.runCashed += amount;
-    if (S.config.cashReset) {
-      game.player.balance = 0;
-      game.player.displayBalance = 0;
-    }
+    game.endRound();
     showResult("cash", amount);
+    refreshHUD();
   };
   $("restartBtn").onclick = () => {
-    if (resultKind === "cash" && resultContinue) {
-      $("resultOverlay").hidden = true;
-      game.paused = false;
-    } else start();
+    start();
   };
   $("resultSettings").onclick = () => openSettings();
   $("playBtn").onclick = () => {
@@ -560,11 +583,13 @@
     { passive: false },
   );
   $("arena").addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch" || game.touchInput.active) return;
     game.pointer.x = e.clientX;
     game.pointer.y = e.clientY;
     game.pointer.active = true;
   });
   $("arena").addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "touch") return;
     if (e.button !== 0) return;
     game.pointer.x = e.clientX;
     game.pointer.y = e.clientY;
@@ -572,9 +597,12 @@
     game.pointer.down = true;
     $("arena").setPointerCapture(e.pointerId);
   });
-  window.addEventListener("pointerup", () => (game.pointer.down = false));
+  window.addEventListener("pointerup", (e) => {
+    if (e.pointerType !== "touch") game.pointer.down = false;
+  });
   window.addEventListener("pointercancel", () => (game.pointer.down = false));
   window.addEventListener("blur", () => {
+    S.releaseTouch();
     game.pointer.down = false;
     if (
       game.started &&
@@ -604,7 +632,17 @@
       pause();
     }
   });
-  window.addEventListener("resize", () => game.renderer.resize());
+  window.addEventListener("resize", () => {
+    S.releaseTouch();
+    game.renderer.resize();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      S.releaseTouch();
+      game.pointer.down = false;
+      if (game.started && !game.roundEnded) game.paused = true;
+    }
+  });
   $("resetBtn").onclick = () => {
     S.replace(S.defaults);
     renderSettings();

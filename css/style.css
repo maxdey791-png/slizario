@@ -1152,3 +1152,373 @@ h2 {
     12% 96%
   );
 }
+/* Round goal and touch controls share the existing glass/neon visual language. */
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overscroll-behavior: none;
+}
+body {
+  position: fixed;
+  inset: 0;
+}
+.overlay,
+#settingsContent,
+.settings-layout nav {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.glass {
+  -webkit-backdrop-filter: blur(18px);
+}
+.cash-goal {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 26px;
+  width: clamp(250px, 33vw, 490px);
+  padding: 12px 42px 12px 16px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+.goal-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.goal-label b {
+  color: var(--text);
+  font-weight: 600;
+}
+#goalTrack {
+  height: 5px;
+  background: #ffffff0b;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 9px;
+}
+#goalFill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #79cca1, var(--lime));
+  box-shadow: 0 0 12px #b5f76b66;
+  transition: transform 0.15s linear;
+}
+#goalPercent {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  font-size: 9px;
+  color: var(--lime);
+}
+#touchControls {
+  display: none;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+#joystick,
+#touchBoost {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#joystick {
+  bottom: max(28px, env(safe-area-inset-bottom));
+  left: max(24px, env(safe-area-inset-left));
+  width: 116px;
+  height: 116px;
+  border: 1px solid #b5f76b40;
+  border-radius: 50%;
+  background: radial-gradient(circle, #a7e2870e, #0d1a26bb);
+  box-shadow: inset 0 0 35px #b5f76b0a;
+}
+#joystick:after {
+  content: "";
+  position: absolute;
+  inset: 23px;
+  border: 1px dashed #d7fbb41c;
+  border-radius: 50%;
+}
+#joystickKnob {
+  position: absolute;
+  left: calc(50% - 23px);
+  top: calc(50% - 23px);
+  height: 46px;
+  width: 46px;
+  border: 1px solid #cfff9b66;
+  background: radial-gradient(circle at 35% 25%, #c8fa8b, #739f50);
+  border-radius: 50%;
+  box-shadow: 0 4px 20px #0005;
+  z-index: 1;
+}
+#joystick.engaged {
+  border-color: #b5f76b99;
+}
+#touchBoost {
+  right: max(25px, env(safe-area-inset-right));
+  bottom: max(36px, env(safe-area-inset-bottom));
+  border-radius: 50%;
+  height: 88px;
+  width: 88px;
+  border-color: #b5f76b55;
+  background: #152b22df;
+  font-size: 35px;
+  color: var(--lime);
+  font-weight: 700;
+  padding: 0;
+}
+#touchBoost small {
+  display: block;
+  font-size: 7px;
+  letter-spacing: 1px;
+  margin: 0 0 10px;
+}
+#touchBoost.engaged {
+  background: #395e27;
+  box-shadow: 0 0 30px #b5f76b33;
+}
+.recording #touchControls {
+  opacity: 0.06;
+}
+.recording #touchControls:active {
+  opacity: 0.5;
+}
+@media (max-width: 1100px) {
+  .cash-goal {
+    top: 78px;
+    width: 300px;
+  }
+  .stats,
+  .leaderboard {
+    top: 158px;
+  }
+}
+@media (pointer: coarse) {
+  #touchControls {
+    display: block;
+  }
+  .controls {
+    bottom: 168px;
+  }
+  .zoom-controls {
+    bottom: 128px;
+  }
+  .bottom-left {
+    bottom: 180px;
+  }
+  .control-help {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .cash-goal {
+    top: 74px;
+    width: calc(100% - 32px);
+    left: 16px;
+    transform: none;
+    padding: 12px 42px 12px 12px;
+  }
+  .stats {
+    top: 148px;
+    left: 16px;
+    width: 180px;
+  }
+  .leaderboard {
+    display: none;
+  }
+  .bottom-left {
+    top: 153px;
+    right: 16px;
+    left: auto;
+    bottom: auto;
+  }
+  .controls {
+    bottom: max(172px, calc(env(safe-area-inset-bottom) + 155px));
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+  .zoom-controls {
+    bottom: 132px;
+    right: 27px;
+  }
+  .topbar {
+    top: max(16px, env(safe-area-inset-top));
+    left: 16px;
+    right: 16px;
+  }
+  .welcome-card {
+    max-height: calc(100dvh - 20px);
+    overflow: auto;
+  }
+  .settings-panel {
+    max-height: calc(100dvh - 16px);
+  }
+  .settings-layout {
+    height: 65dvh;
+  }
+  .setting-row select {
+    max-width: 165px;
+  }
+  .cash-goal .goal-label {
+    font-size: 10px;
+  }
+}
+@media (pointer: coarse) and (max-height: 560px) {
+  .topbar {
+    top: 10px;
+    left: 16px;
+    right: 16px;
+  }
+  .brand {
+    font-size: 16px;
+  }
+  .tag,
+  .live {
+    display: none;
+  }
+  .cash-goal {
+    top: 12px;
+    width: calc(100% - 460px);
+    min-width: 220px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .stats {
+    top: 70px;
+    left: 16px;
+    width: 180px;
+    padding: 12px;
+  }
+  .balance {
+    font-size: 27px;
+    margin: 6px 0;
+  }
+  .stat-bottom {
+    font-size: 9px;
+  }
+  .stats .cash-progress {
+    margin: 10px 0 7px;
+  }
+  .cash-btn {
+    padding: 7px;
+    font-size: 10px;
+  }
+  .leaderboard {
+    display: none;
+  }
+  .bottom-left {
+    top: 68px;
+    right: 16px;
+    left: auto;
+    bottom: auto;
+  }
+  .map-frame {
+    width: 103px;
+    height: 126px;
+  }
+  .map-frame canvas {
+    height: 96px;
+    width: 96px;
+  }
+  .map-frame span {
+    font-size: 6px;
+    margin-top: 3px;
+  }
+  .controls {
+    bottom: 20px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+  .controls .divider,
+  .controls kbd {
+    display: none;
+  }
+  .controls button {
+    font-size: 10px;
+    padding: 6px;
+  }
+  .zoom-controls {
+    bottom: 108px;
+    right: 22px;
+  }
+  .settings-layout {
+    height: 62dvh;
+  }
+  .settings-header {
+    padding: 10px 18px;
+  }
+  .settings-header h2 {
+    font-size: 20px;
+  }
+  .settings-footer {
+    padding: 10px 16px;
+  }
+  #joystick {
+    height: 102px;
+    width: 102px;
+    bottom: 16px;
+  }
+  #touchBoost {
+    height: 76px;
+    width: 76px;
+    bottom: 19px;
+  }
+  .welcome-card {
+    max-height: calc(100dvh - 16px);
+    overflow: auto;
+    padding: 22px;
+  }
+  .hero-snake {
+    display: none;
+  }
+}
+.goal-label > span {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.goal-label b {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+@media (pointer: coarse) {
+  .topbar {
+    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
+  }
+  .stats {
+    left: max(16px, env(safe-area-inset-left));
+  }
+  .overlay {
+    padding: max(10px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(10px, env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
+  }
+}
+@media (pointer: coarse) and (max-height: 560px) {
+  .topbar {
+    top: max(10px, env(safe-area-inset-top));
+  }
+  .controls {
+    bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  #joystick {
+    bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  #touchBoost {
+    bottom: max(19px, env(safe-area-inset-bottom));
+  }
+}

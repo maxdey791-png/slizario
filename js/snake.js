@@ -20,7 +20,9 @@ S.Snake = class {
     this.boost = false;
     this.boostVisual = 0;
     this.points = [];
-    this.thinkTimer = 0;
+    this.thinkTimer = player ? 0 : (this.id % 13) * 0.011;
+    this.aiNear = [];
+    this.aiFood = [];
     this.aiTarget = null;
     this.aiMode = "forage";
     this.age = 0;
@@ -29,7 +31,11 @@ S.Snake = class {
     this.buildBody();
   }
   get radius() {
-    return 9 + Math.sqrt(this.mass) * 0.26;
+    return (
+      9 +
+      Math.sqrt(this.mass) * 0.26 -
+      (this.player ? 1.1 * Math.exp(-this.mass / 700) : 0)
+    );
   }
   get spacing() {
     return this.radius * 0.63;

@@ -288,11 +288,15 @@ S.getFlag = function (id) {
   }
   return im.complete && im.naturalWidth ? im : null;
 };
+S.paletteCache = new Map();
 S.skinColor = function (id) {
+  if (S.paletteCache.has(id)) return S.paletteCache.get(id);
   if (S.skinColors[id]) return S.skinColors[id];
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return ["hsl(" + h + " 75% 70%)", "hsl(" + h + " 65% 42%)"];
+  const colors = ["hsl(" + h + " 75% 70%)", "hsl(" + h + " 65% 42%)"];
+  S.paletteCache.set(id, colors);
+  return colors;
 };
 S.randomSkin = () =>
   Math.random() < 0.65

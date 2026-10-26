@@ -12,6 +12,9 @@ S.Game = class {
     this.paused = false;
     this.menuOpen = false;
     this.recording = false;
+    this.roundEnded = false;
+    this.roundStartBalance = S.config.startBalance;
+    this.pendingDrops = [];
     this.time = 0;
     this.pointer = {
       x: innerWidth / 2 + 180,
@@ -30,6 +33,10 @@ S.Game = class {
     this.hudTimer = 0;
     this.onDeath = null;
     this.onHUD = null;
+    this.touchInput = { active: false, angle: 0, boost: false };
+    this.collisionQuery = [];
+    this.foodQuery = [];
+    this.deaths = new Map();
     this.reset(false);
   }
   reset(start = true) {
@@ -38,11 +45,15 @@ S.Game = class {
     this.particles = [];
     this.bodyGrid.clear();
     this.foodGrid.clear();
+    this.roundEnded = false;
+    this.roundStartBalance = S.config.startBalance;
+    this.pendingDrops = [];
     this.time = 0;
     this.started = start;
     this.paused = false;
     this.runCashed = 0;
     this.pointer.down = false;
+    this.touchInput = { active: false, angle: 0, boost: false };
     this.doubleUntil = 0;
     this.player = new S.Snake(
       0,
@@ -108,15 +119,13 @@ S.Game = class {
     this.bodyGrid.clear();
     for (const s of this.snakes) {
       if (!s.alive) continue;
+      const radius = s.radius;
       for (let i = 0; i < s.points.length; i += 2) {
         const p = s.points[i];
-        this.bodyGrid.insert({
-          x: p.x,
-          y: p.y,
-          snake: s,
-          index: i,
-          radius: s.radius,
-        });
+        p.snake = s;
+        p.index = i;
+        p.radius = radius;
+        this.bodyGrid.insert(p);
       }
     }
   }
@@ -142,19 +151,34 @@ S.Game = class {
             " повержен",
         );
     }
-    const points = victim.points,
-      total = Math.min(victim.mass * 0.8, 4500),
-      step = Math.max(1, Math.ceil(points.length / 150)),
-      count = Math.ceil(points.length / step);
-    for (let i = 0; i < points.length; i += step) {
-      const p = points[i];
+    this.pendingDrops.push({
+      points: victim.points,
+      index: 0,
+      count: Math.min(150, victim.points.length),
+      value:
+        Math.min(victim.mass * 0.8, 4500) / Math.min(150, victim.points.length),
+      color: S.skinColor(victim.skin)[0],
+    });
+    if (victim.player) {
+      this.deathReason = reason;
+      if (this.onDeath) this.onDeath(victim, reason);
+    }
+    return true;
+  }
+  processDrops(budget = 32) {
+    while (budget-- > 0 && this.pendingDrops.length) {
+      const drop = this.pendingDrops[0],
+        p =
+          drop.points[
+            Math.floor((drop.index * drop.points.length) / drop.count)
+          ];
       this.addFood(
         p.x + S.rand(-12, 12),
         p.y + S.rand(-12, 12),
-        total / count,
+        drop.value,
         true,
       );
-      if (S.config.showParticles && this.particles.length < 700)
+      if (S.config.showParticles && this.particles.length < 698)
         for (let k = 0; k < 2; k++)
           this.particles.push({
             x: p.x,
@@ -162,25 +186,35 @@ S.Game = class {
             vx: S.rand(-90, 90),
             vy: S.rand(-90, 90),
             size: S.rand(2, 5),
-            color: S.skinColor(victim.skin)[0],
+            color: drop.color,
             life: 1,
             maxLife: 1,
           });
+      drop.index++;
+      this.pendingDrops.shift();
+      if (drop.index < drop.count) this.pendingDrops.push(drop);
     }
-    if (victim.player) {
-      this.deathReason = reason;
-      if (this.onDeath) this.onDeath(victim, reason);
-    }
+  }
+  endRound() {
+    if (this.roundEnded) return false;
+    this.roundEnded = true;
+    this.paused = true;
+    this.pointer.down = false;
+    this.touchInput.active = false;
+    this.touchInput.boost = false;
+    this.doubleUntil = 0;
     return true;
   }
   update(dt) {
+    if (this.roundEnded) return;
     this.time += dt;
     const c = S.config;
     let bots = this.snakes.reduce(
       (n, s) => n + (!s.player && s.alive ? 1 : 0),
       0,
     );
-    while (bots < c.botCount) {
+    let spawnBudget = 2;
+    while (bots < c.botCount && spawnBudget-- > 0) {
       this.spawnBot();
       bots++;
     }
@@ -194,7 +228,8 @@ S.Game = class {
     for (const s of this.snakes) {
       if (!s.alive) continue;
       if (s.player && this.started && !c.autopilot) {
-        if (this.pointer.active) {
+        if (this.touchInput.active) s.targetAngle = this.touchInput.angle;
+        else if (this.pointer.active) {
           const p = this.camera.screenToWorld(
             this.pointer.x,
             this.pointer.y,
@@ -204,12 +239,16 @@ S.Game = class {
           if (Math.hypot(p.x - s.x, p.y - s.y) > 8)
             s.targetAngle = Math.atan2(p.y - s.y, p.x - s.x);
         }
-        s.boost = this.pointer.down || this.time < this.doubleUntil;
+        s.boost =
+          this.touchInput.boost ||
+          this.pointer.down ||
+          this.time < this.doubleUntil;
       } else S.driveAI(s, this, dt);
       s.update(dt, this);
     }
     this.rebuildBodies();
-    const deaths = new Map();
+    const deaths = this.deaths;
+    deaths.clear();
     for (const s of this.snakes) {
       if (!s.alive) continue;
       if (Math.hypot(s.x, s.y) > c.worldRadius - s.radius) {
@@ -222,7 +261,12 @@ S.Game = class {
           s.angle += S.clamp(S.angleDiff(s.targetAngle, s.angle), -0.15, 0.15);
         } else deaths.set(s, { killer: null, reason: "Граница арены" });
       }
-      const nearby = this.bodyGrid.query(s.x, s.y, s.radius + 60);
+      const nearby = this.bodyGrid.query(
+        s.x,
+        s.y,
+        s.radius + 60,
+        this.collisionQuery,
+      );
       for (const b of nearby) {
         if (b.snake === s || !b.snake.alive) continue;
         const hit = (s.radius + b.radius) * 0.83;
@@ -238,11 +282,12 @@ S.Game = class {
           break;
         }
       }
-      const food = this.foodGrid.query(s.x, s.y, s.radius + 22);
+      const food = this.foodGrid.query(s.x, s.y, s.radius + 22, this.foodQuery);
       for (const f of food) {
         if (f.eaten) continue;
         if (S.distance2(s, f) < (s.radius + 7 + Math.sqrt(f.value)) ** 2) {
           f.eaten = true;
+          this.foodGrid.remove(f);
           S.rewardFood(s, f.value);
         }
       }
@@ -253,12 +298,19 @@ S.Game = class {
       this.kill(s, killer, hit.reason);
     }
     this.snakes = this.snakes.filter((s) => s.alive || s.player);
-    this.food = this.food.filter((f) => !f.eaten);
+    this.processDrops();
+    let kept = 0;
+    for (const f of this.food) if (!f.eaten) this.food[kept++] = f;
+    this.food.length = kept;
     const shortage = c.foodCount - this.food.length;
     for (let i = 0; i < Math.min(25, shortage); i++) this.spawnFood();
-    if (this.food.length > c.foodCount + 3500)
-      this.food.splice(0, this.food.length - c.foodCount - 3500);
-    this.rebuildFoods();
+    if (this.food.length > c.foodCount + 3500) {
+      const removed = this.food.splice(
+        0,
+        this.food.length - c.foodCount - 3500,
+      );
+      for (const f of removed) this.foodGrid.remove(f);
+    }
     this.particles = this.particles.filter((p) => {
       p.life -= dt;
       p.x += p.vx * dt;
@@ -277,7 +329,10 @@ S.Game = class {
     if (elapsed > 0)
       this.fps = S.lerp(this.fps, Math.min(240, 1 / elapsed), 0.04);
     const running =
-      !this.paused && !this.menuOpen && (!this.started || this.player.alive);
+      !this.roundEnded &&
+      !this.paused &&
+      !this.menuOpen &&
+      (!this.started || this.player.alive);
     if (running) {
       this.accumulator += elapsed;
       let steps = 0;
@@ -333,8 +388,13 @@ S.Game = class {
       );
       this.rebuildFoods();
     }
-    if (key === "foodCount" && this.food.length > c.foodCount)
+    if (
+      (key === "foodCount" || key === "*") &&
+      this.food.length > c.foodCount
+    ) {
       this.food.length = c.foodCount;
+      this.rebuildFoods();
+    }
     if (
       !this.started &&
       (key === "startMass" || key === "startBalance" || key === "*")
