@@ -41,11 +41,11 @@ S.Renderer = class {
     }
     x.fillStyle = color;
     x.beginPath();
-    x.arc(32, 32, glow ? 5 : 12, 0, Math.PI * 2);
+    x.arc(32, 32, glow ? 12 : 25, 0, Math.PI * 2);
     x.fill();
     x.fillStyle = "#fff9";
     x.beginPath();
-    x.arc(30, 30, glow ? 2 : 4, 0, Math.PI * 2);
+    x.arc(30, 30, glow ? 3.5 : 6, 0, Math.PI * 2);
     x.fill();
     if (
       [
@@ -59,7 +59,7 @@ S.Renderer = class {
     ) {
       x.strokeStyle = color;
       x.lineWidth = 1.8;
-      const k = glow ? 7 : 13;
+      const k = glow ? 13 : 25;
       x.beginPath();
       if (decor === "underwater") x.arc(32, 32, k, 0, Math.PI * 2);
       else if (decor === "clockwork") {
@@ -84,14 +84,15 @@ S.Renderer = class {
     const b = this.bounds;
     return x > b.l - pad && x < b.r + pad && y > b.t - pad && y < b.b + pad;
   }
-  render(game) {
+  render(game, alpha = 1) {
     const ctx = this.ctx,
       c = S.config,
       theme = S.themes[c.theme],
-      cam = game.camera,
+      cam = game.interpolatedCamera(alpha),
       w = this.width,
       h = this.height,
       z = cam.zoom;
+    this.visualTime = Math.max(0, game.time - (1 - S.clamp(alpha, 0, 1)) / 60);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, w, h);
@@ -108,15 +109,15 @@ S.Renderer = class {
     this.currentZoom = z;
     const fx = c.effects * (game.recording && !c.recordEffects ? 0 : 1);
     this.drawCachedMap(ctx, theme, fx);
-    S.drawAtmosphere?.(ctx, theme, this.bounds, game.time, fx);
+    S.drawAtmosphere?.(ctx, theme, this.bounds, this.visualTime, fx);
     const colors = theme.food;
     const glow = c.glow && c.quality !== "low" && fx > 0;
     for (const f of game.food) {
       if (f.eaten || !this.visible(f.x, f.y, 30)) continue;
       const color = colors[f.color % colors.length],
-        radius = (2.5 + Math.sqrt(f.value) * 1.1) * (f.dropped ? 1.25 : 1);
-      const size = glow ? radius * 7 : radius * 2.6;
-      const pulse = 1 + Math.sin(game.time * 2 + f.phase) * 0.12 * fx;
+        radius = S.foodRadius(f);
+      const size = glow ? radius * 5 : radius * 2.5;
+      const pulse = 1 + Math.sin(this.visualTime * 2 + f.phase) * 0.12 * fx;
       ctx.drawImage(
         this.sprite(color, glow, theme.decor),
         f.x - (size * pulse) / 2,
@@ -135,7 +136,8 @@ S.Renderer = class {
     }
     const ordered = this.ordered;
     ordered.length = 0;
-    for (const snake of game.snakes) if (snake.alive) ordered.push(snake);
+    for (const snake of game.snakes)
+      if (snake.alive) ordered.push(snake.interpolated(alpha));
     ordered.sort((a, b) => a.mass - b.mass);
     for (const s of ordered) {
       if (
@@ -539,7 +541,7 @@ S.Renderer = class {
       ctx.lineWidth = 1.4;
       for (let i = 0; i < 3; i++) {
         const q = p[Math.min(p.length - 1, 7 + i * 8)];
-        const offset = Math.sin(game.time * 12 + i) * 8;
+        const offset = Math.sin(this.visualTime * 12 + i) * 8;
         ctx.beginPath();
         ctx.moveTo(
           q.x - Math.cos(s.angle) * 24 + offset,
@@ -553,7 +555,7 @@ S.Renderer = class {
   }
   drawLabel(ctx, s, game) {
     const c = S.config,
-      z = game.camera.zoom,
+      z = this.currentZoom,
       showBal =
         c.balanceEnabled &&
         (s.player || c.showBotBalances) &&
@@ -582,7 +584,14 @@ S.Renderer = class {
     }
     if (showName) {
       ctx.font = "10px Segoe UI, Arial";
-      ctx.fillStyle = s.player ? "#b5f76b" : "#a2afc4";
+      ctx.fillStyle =
+        S.config.theme === "paper"
+          ? s.player
+            ? "#315346"
+            : "#40566a"
+          : s.player
+            ? "#b5f76b"
+            : "#a2afc4";
       ctx.fillText(
         s.name + (s.player && c.autopilot ? " · AUTO" : ""),
         0,

@@ -70,6 +70,13 @@ S.Game = class {
     this.camera.x = 0;
     this.camera.y = 0;
     this.camera.zoom = S.config.zoom;
+    this.previousCamera = {
+      x: this.camera.x,
+      y: this.camera.y,
+      zoom: this.camera.zoom,
+    };
+    this.renderCamera = { ...this.previousCamera };
+    this.accumulator = 0;
     this.bestMass = this.player.mass;
     this.rebuildBodies();
     for (let i = 0; i < S.config.botCount; i++) this.spawnBot();
@@ -92,12 +99,13 @@ S.Game = class {
     this.snakes.push(s);
     return s;
   }
-  addFood(x, y, value = 1, dropped = false) {
+  addFood(x, y, value = 1, dropped = false, lootBalance = 0) {
     const f = {
       x,
       y,
       value: S.clamp(value, 0.5, 30),
       dropped,
+      lootBalance,
       color: Math.floor(Math.random() * 4),
       phase: Math.random() * 7,
       eaten: false,
@@ -137,24 +145,19 @@ S.Game = class {
     if (killer && killer !== victim && killer.alive) {
       S.rewardKill(killer, victim);
       if (killer.player && S.toast)
-        S.toast(
-          (S.config.balanceEnabled
-            ? "+" +
-              S.format(
-                (S.config.killReward +
-                  victim.balance * S.config.transferShare) *
-                  S.config.balanceRate,
-              ) +
-              " · "
-            : "") +
-            victim.name +
-            " повержен",
-        );
+        S.toast(victim.name + " повержен · соберите выпавшие частицы");
     }
     this.pendingDrops.push({
       points: victim.points,
       index: 0,
       count: Math.min(150, victim.points.length),
+      lootBalance: S.config.balanceEnabled
+        ? (victim.balance * S.config.transferShare +
+            (killer && killer !== victim && killer.alive
+              ? S.config.killReward
+              : 0)) /
+          Math.min(150, victim.points.length)
+        : 0,
       value:
         Math.min(victim.mass * 0.8, 4500) / Math.min(150, victim.points.length),
       color: S.skinColor(victim.skin)[0],
@@ -177,6 +180,7 @@ S.Game = class {
         p.y + S.rand(-12, 12),
         drop.value,
         true,
+        drop.lootBalance,
       );
       if (S.config.showParticles && this.particles.length < 698)
         for (let k = 0; k < 2; k++)
@@ -282,13 +286,13 @@ S.Game = class {
           break;
         }
       }
-      const food = this.foodGrid.query(s.x, s.y, s.radius + 22, this.foodQuery);
+      const food = this.foodGrid.query(s.x, s.y, s.radius + 24, this.foodQuery);
       for (const f of food) {
         if (f.eaten) continue;
-        if (S.distance2(s, f) < (s.radius + 7 + Math.sqrt(f.value)) ** 2) {
+        if (S.distance2(s, f) < (s.radius + S.foodRadius(f) * 0.8) ** 2) {
           f.eaten = true;
           this.foodGrid.remove(f);
-          S.rewardFood(s, f.value);
+          S.rewardFood(s, f.value, f.lootBalance);
         }
       }
     }
@@ -320,7 +324,19 @@ S.Game = class {
       return p.life > 0;
     });
     this.bestMass = Math.max(this.bestMass, this.player.mass);
+    this.previousCamera.x = this.camera.x;
+    this.previousCamera.y = this.camera.y;
+    this.previousCamera.zoom = this.camera.zoom;
     this.camera.update(dt, this.player, this.recording);
+  }
+  interpolatedCamera(alpha = 1) {
+    const a = S.clamp(alpha, 0, 1),
+      prev = this.previousCamera,
+      view = this.renderCamera;
+    view.x = S.lerp(prev.x, this.camera.x, a);
+    view.y = S.lerp(prev.y, this.camera.y, a);
+    view.zoom = S.lerp(prev.zoom, this.camera.zoom, a);
+    return view;
   }
   frame(timestamp) {
     if (!this.lastTime) this.lastTime = timestamp;
@@ -351,7 +367,7 @@ S.Game = class {
       }
       if (steps === 5) this.accumulator = 0;
     } else this.accumulator = 0;
-    this.renderer.render(this);
+    this.renderer.render(this, running ? this.accumulator * 60 : 1);
     this.hudTimer += elapsed;
     if (this.hudTimer > 0.12) {
       this.hudTimer = 0;

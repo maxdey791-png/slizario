@@ -44,10 +44,10 @@ const { chromium } = require("playwright-core");
           simulation += performance.now() - t;
         };
         await new Promise((resolve) => {
-          g.renderer.render = function (game) {
+          g.renderer.render = function (game, alpha) {
             const now = performance.now(),
               t = now;
-            draw.call(this, game);
+            draw.call(this, game, alpha);
             count++;
             if (count > 45) {
               cpu.push(simulation + performance.now() - t);

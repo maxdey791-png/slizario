@@ -150,7 +150,7 @@ const server = http.createServer((req, res) => {
       });
       assert(r);
     });
-    await test("Kill credit, balance transfer, death food and absorbing dropped mass", async () => {
+    await test("Kill only credits statistics; dropped food must be eaten", async () => {
       await fresh({ botCount: 1 });
       const r = await page.evaluate(() => {
         const g = slizario,
@@ -183,10 +183,153 @@ const server = http.createServer((req, res) => {
       assert(
         r.dead &&
           r.kills === 1 &&
-          r.balance === 2050 &&
+          r.balance === 1000 &&
           r.drops > 0 &&
           r.absorbed,
       );
+    });
+    await test("Remote kills cannot increase mass or balance; loot belongs to its actual eater", async () => {
+      await fresh({ botCount: 0, killReward: 250, transferShare: 1 });
+      const r = await page.evaluate(() => {
+        const g = slizario,
+          p = g.player,
+          victim = new S.Snake(1800, 1000, 350, "coral", "loot");
+        victim.angle = 0;
+        victim.buildBody();
+        victim.balance = 800;
+        g.snakes.push(victim);
+        const initial = { mass: p.mass, balance: p.balance };
+        g.kill(victim, p);
+        for (let i = 0; i < 30; i++) g.update(1 / 60);
+        const untouched =
+          p.mass === initial.mass && p.balance === initial.balance;
+        const cashOnGround = g.food.reduce((n, f) => n + f.lootBalance, 0);
+        // A different snake takes the food. The killer gets neither its mass nor its money.
+        const eater = new S.Snake(1800, 1000, 120, "ice", "eater");
+        eater.balance = 0;
+        eater.angle = 0;
+        eater.targetAngle = 0;
+        eater.buildBody();
+        eater.thinkTimer = 100;
+        g.snakes.push(eater);
+        S.config.botCount = 1;
+        const candidates = [...g.food],
+          mass = eater.mass;
+        g.update(1 / 60);
+        const eaten = candidates.filter((f) => f.eaten),
+          expectedCash = eaten.reduce(
+            (n, f) =>
+              n +
+              (f.value * S.config.foodReward + f.lootBalance) *
+                S.config.balanceRate,
+            0,
+          ),
+          expectedMass = eaten.reduce((n, f) => n + f.value, 0);
+        return {
+          untouched,
+          cashOnGround,
+          eaten: eaten.length,
+          killerUnchanged:
+            p.mass === initial.mass && p.balance === initial.balance,
+          massError: Math.abs(eater.mass - mass - expectedMass),
+          cashError: Math.abs(eater.balance - expectedCash),
+        };
+      });
+      assert(r.untouched && r.killerUnchanged);
+      assert.equal(r.cashOnGround, 1050);
+      assert(r.eaten > 0);
+      assert(r.massError < 1e-8 && r.cashError < 1e-8);
+    });
+    await test("Render interpolation moves the head, body and camera between physics ticks without changing physics", async () => {
+      await fresh({ botCount: 0 });
+      const r = await page.evaluate(() => {
+        const g = slizario,
+          p = g.player;
+        g.update(1 / 60);
+        const actual = {
+          x: p.x,
+          y: p.y,
+          body: p.points.map((q) => [q.x, q.y]),
+        };
+        const zero = p.interpolated(0).x,
+          half = p.interpolated(0.5).x,
+          full = p.interpolated(1).x;
+        let previous = -Infinity,
+          monotonic = true;
+        for (let i = 0; i <= 10; i++) {
+          g.renderer.render(g, i / 10);
+          const head = p.visualState.x;
+          monotonic &&= head >= previous;
+          previous = head;
+        }
+        const unchanged =
+          p.x === actual.x &&
+          p.y === actual.y &&
+          p.points.every(
+            (q, i) => q.x === actual.body[i][0] && q.y === actual.body[i][1],
+          );
+        const c0 = g.interpolatedCamera(0).x,
+          c1 = g.interpolatedCamera(1).x,
+          cm = g.interpolatedCamera(0.5).x;
+        return {
+          zero,
+          half,
+          full,
+          monotonic,
+          unchanged,
+          camera: Math.abs(cm - (c0 + c1) / 2) < 1e-9,
+        };
+      });
+      assert(
+        r.zero < r.half &&
+          r.half < r.full &&
+          r.monotonic &&
+          r.unchanged &&
+          r.camera,
+      );
+    });
+    await test("Boost acceleration ramps up and down instead of jumping instantly", async () => {
+      await fresh({ botCount: 0, infiniteBoost: true });
+      const r = await page.evaluate(() => {
+        const g = slizario,
+          p = g.player,
+          measure = () => {
+            const x = p.x,
+              y = p.y;
+            g.update(1 / 60);
+            return Math.hypot(p.x - x, p.y - y);
+          };
+        const base = measure();
+        g.pointer.down = true;
+        const first = measure();
+        for (let i = 0; i < 20; i++) measure();
+        const fast = measure();
+        g.pointer.down = false;
+        const release = measure();
+        for (let i = 0; i < 45; i++) measure();
+        return { base, first, fast, release, settled: measure() };
+      });
+      assert(
+        r.base < r.first &&
+          r.first < r.fast &&
+          r.release < r.fast &&
+          r.release > r.base,
+      );
+      assert(Math.abs(r.settled - r.base) < 0.02);
+    });
+    await test("Food is larger without changing its nutritional value", async () => {
+      const r = await page.evaluate(() => {
+        const small = { value: 1.5, dropped: false },
+          large = { value: 20, dropped: true };
+        return {
+          size: S.foodRadius(small),
+          old: 2.5 + Math.sqrt(small.value) * 1.1,
+          drop: S.foodRadius(large),
+          value: small.value,
+        };
+      });
+      assert(r.size > r.old * 1.5 && r.drop > r.size);
+      assert.equal(r.value, 1.5);
     });
     await test("Boost spends mass; infinite boost preserves it", async () => {
       await fresh({ botCount: 0 });
@@ -224,14 +367,16 @@ const server = http.createServer((req, res) => {
         const g = slizario;
         for (let i = 0; i < 500; i++) g.spawnFood();
         const start = new Map(g.snakes.map((s) => [s.id, { x: s.x, y: s.y }]));
-        for (let i = 0; i < 900; i++) g.update(1 / 60);
+        const movingIds = new Set();
+        for (let i = 0; i < 900; i++) {
+          const positions = g.snakes.map((s) => ({ snake: s, x: s.x, y: s.y }));
+          g.update(1 / 60);
+          for (const before of positions)
+            if (!before.snake.player && S.distance2(before.snake, before) > 1)
+              movingIds.add(before.snake.id);
+        }
         return {
-          moving: g.snakes.filter(
-            (s) =>
-              !s.player &&
-              start.has(s.id) &&
-              S.distance2(s, start.get(s.id)) > 400,
-          ).length,
+          moving: movingIds.size,
           kills: g.snakes.reduce((n, s) => n + s.kills, 0),
           food: g.food.length,
           population: g.snakes.length,
@@ -239,7 +384,13 @@ const server = http.createServer((req, res) => {
           targets: g.snakes.filter((s) => s.aiTarget).length,
         };
       });
-      assert(r.moving > 0 && r.food > 0 && r.population >= 12 && r.targets > 0);
+      assert(
+        r.moving > 0 &&
+          r.food > 0 &&
+          r.population > 1 &&
+          r.population <= 13 &&
+          r.targets > 0,
+      );
       assert(r.kills > 0 || r.newIds);
     });
     await test("Autopilot collects food and each style produces steering", async () => {
@@ -313,20 +464,46 @@ const server = http.createServer((req, res) => {
       assert.equal(state.balance, 1000);
       assert.equal(state.run, 0);
     });
-    await test("Cash Out hotkey works with hidden OBS HUD, honors threshold and ignores editing/modifiers", async()=>{
-      await fresh({botCount:0,cashMin:2000});
-      await page.evaluate(()=>{slizario.menuOpen=false;slizario.paused=true;});
-      await page.keyboard.press('v');await page.keyboard.press('c');
-      assert(await page.evaluate(()=>slizario.recording&&!slizario.roundEnded));
-      await page.keyboard.press('v');await page.click('#settingsBtn');
-      await page.evaluate(()=>{slizario.player.balance=2500;slizario.onHUD();});
-      await page.locator('#setting-playerName').focus();await page.keyboard.press('c');
-      assert(!await page.evaluate(()=>slizario.roundEnded));
-      await page.click('#closeSettings');await page.keyboard.press('v');
-      await page.keyboard.press('Control+c');assert(!await page.evaluate(()=>slizario.roundEnded));
-      await page.dispatchEvent('body','keydown',{code:'KeyC',key:'с',bubbles:true});
-      assert(await page.evaluate(()=>slizario.roundEnded&&!slizario.recording&&!document.getElementById('resultOverlay').hidden&&slizario.runCashed===2500));
-      await page.keyboard.press('c');assert.equal(await page.evaluate(()=>slizario.runCashed),2500);
+    await test("Cash Out hotkey works with hidden OBS HUD, honors threshold and ignores editing/modifiers", async () => {
+      await fresh({ botCount: 0, cashMin: 2000 });
+      await page.evaluate(() => {
+        slizario.menuOpen = false;
+        slizario.paused = true;
+      });
+      await page.keyboard.press("v");
+      await page.keyboard.press("c");
+      assert(
+        await page.evaluate(() => slizario.recording && !slizario.roundEnded),
+      );
+      await page.keyboard.press("v");
+      await page.click("#settingsBtn");
+      await page.evaluate(() => {
+        slizario.player.balance = 2500;
+        slizario.onHUD();
+      });
+      await page.locator("#setting-playerName").focus();
+      await page.keyboard.press("c");
+      assert(!(await page.evaluate(() => slizario.roundEnded)));
+      await page.click("#closeSettings");
+      await page.keyboard.press("v");
+      await page.keyboard.press("Control+c");
+      assert(!(await page.evaluate(() => slizario.roundEnded)));
+      await page.dispatchEvent("body", "keydown", {
+        code: "KeyC",
+        key: "с",
+        bubbles: true,
+      });
+      assert(
+        await page.evaluate(
+          () =>
+            slizario.roundEnded &&
+            !slizario.recording &&
+            !document.getElementById("resultOverlay").hidden &&
+            slizario.runCashed === 2500,
+        ),
+      );
+      await page.keyboard.press("c");
+      assert.equal(await page.evaluate(() => slizario.runCashed), 2500);
     });
     await test("Progress is relative to round start and supports every currency", async () => {
       await fresh({ botCount: 0, startBalance: 1000, cashMin: 5000 });
@@ -393,7 +570,7 @@ const server = http.createServer((req, res) => {
         ["RUB", 7],
       );
     });
-    await test("249 offline ISO flags and twelve distinct map renderings", async () => {
+    await test("249 offline ISO flags and sixteen distinct map renderings", async () => {
       const r = await page.evaluate(async () => {
         const g = slizario;
         g.menuOpen = true;
@@ -424,7 +601,7 @@ const server = http.createServer((req, res) => {
       });
       assert.equal(r.count, 249);
       assert(r.flags);
-      assert(r.maps >= 11);
+      assert(r.maps >= 15);
     });
     await test("New themes have distinct geometry with equalized colors", async () => {
       const fingerprints = await page.evaluate(() => {
@@ -439,6 +616,10 @@ const server = http.createServer((req, res) => {
           "egypt",
           "frozen",
           "jungle",
+          "arcade",
+          "billiards",
+          "paper",
+          "synthwave",
         ]) {
           pen.clearRect(0, 0, 400, 400);
           const theme = {
@@ -459,7 +640,7 @@ const server = http.createServer((req, res) => {
         }
         return result;
       });
-      assert.equal(new Set(fingerprints.map((f) => f.hash)).size, 6);
+      assert.equal(new Set(fingerprints.map((f) => f.hash)).size, 10);
       assert(fingerprints.every((f) => f.count > 500));
     });
     await test("Smaller default snake, growth and preserved camera settings", async () => {

@@ -1,22 +1,19 @@
 "use strict";
-S.rewardFood = function (s, value) {
+S.rewardFood = function (s, value, lootBalance = 0) {
   s.mass = Math.min(6500, s.mass + value);
   if (S.config.balanceEnabled)
     s.balance = Math.min(
       1e15,
-      s.balance + value * S.config.foodReward * S.config.balanceRate,
+      s.balance +
+        (value * S.config.foodReward + lootBalance) * S.config.balanceRate,
     );
 };
-S.rewardKill = function (killer, victim) {
+// A kill only updates statistics. Both mass and money require an actual pickup.
+S.rewardKill = function (killer) {
   killer.kills++;
-  if (S.config.balanceEnabled)
-    killer.balance = Math.min(
-      1e15,
-      killer.balance +
-        (S.config.killReward + victim.balance * S.config.transferShare) *
-          S.config.balanceRate,
-    );
 };
+S.foodRadius = (food) =>
+  (4.8 + Math.sqrt(food.value) * 1.6) * (food.dropped ? 1.2 : 1);
 S.canCashOut = (game) =>
   !!(
     game.started &&

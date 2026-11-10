@@ -28,6 +28,7 @@ S.Snake = class {
     this.age = 0;
     this.shedTimer = 0;
     this.distance = 0;
+    this.visualState = null;
     this.buildBody();
   }
   get radius() {
@@ -44,6 +45,10 @@ S.Snake = class {
     return Math.min(420, Math.floor(16 + this.mass / 13));
   }
   buildBody() {
+    this.previousX = this.x;
+    this.previousY = this.y;
+    this.previousAngle = this.angle;
+    this.previousRadius = this.radius;
     this.points = [];
     for (let i = 0; i < this.segmentCount; i++)
       this.points.push({
@@ -54,6 +59,14 @@ S.Snake = class {
   update(dt, game) {
     if (!this.alive) return;
     const c = S.config;
+    this.previousX = this.x;
+    this.previousY = this.y;
+    this.previousAngle = this.angle;
+    this.previousRadius = this.radius;
+    for (const p of this.points) {
+      p.previousX = p.x;
+      p.previousY = p.y;
+    }
     this.age += dt;
     const canBoost =
       this.boost && (c.infiniteBoost || !c.massDrain || this.mass > 65);
@@ -68,9 +81,10 @@ S.Snake = class {
     const speed =
       c.speed *
       difficultyScale *
-      (canBoost ? c.boostMultiplier : 1) *
+      (1 + (c.boostMultiplier - 1) * this.boostVisual) *
       (1 - 0.12 * S.clamp(this.mass / 8000, 0, 1));
-    const turnRate = (canBoost ? 2.8 : 3.6) / Math.max(1, this.radius / 16);
+    const turnRate =
+      S.lerp(3.6, 2.8, this.boostVisual) / Math.max(1, this.radius / 16);
     this.angle += S.clamp(
       S.angleDiff(this.targetAngle, this.angle),
       -turnRate * dt,
@@ -116,5 +130,31 @@ S.Snake = class {
     );
     if (Math.abs(this.displayBalance - this.balance) < 0.1)
       this.displayBalance = this.balance;
+  }
+  interpolated(alpha = 1) {
+    const a = S.clamp(alpha, 0, 1);
+    if (!this.visualState) {
+      this.visualState = Object.create(this);
+      this.visualState.points = [];
+      Object.defineProperty(this.visualState, "radius", {
+        value: this.radius,
+        writable: true,
+      });
+    }
+    const view = this.visualState;
+    view.x = S.lerp(this.previousX ?? this.x, this.x, a);
+    view.y = S.lerp(this.previousY ?? this.y, this.y, a);
+    view.angle =
+      (this.previousAngle ?? this.angle) +
+      S.angleDiff(this.angle, this.previousAngle ?? this.angle) * a;
+    view.radius = S.lerp(this.previousRadius ?? this.radius, this.radius, a);
+    for (let i = 0; i < this.points.length; i++) {
+      const p = this.points[i],
+        q = view.points[i] || (view.points[i] = { x: p.x, y: p.y });
+      q.x = S.lerp(p.previousX ?? p.x, p.x, a);
+      q.y = S.lerp(p.previousY ?? p.y, p.y, a);
+    }
+    view.points.length = this.points.length;
+    return view;
   }
 };

@@ -24,6 +24,7 @@
   function refreshHUD() {
     const c = S.config,
       p = game.player;
+    document.body.classList.toggle("light-world", c.theme === "paper");
     $("balanceValue").textContent = c.balanceEnabled
       ? S.format(p.displayBalance)
       : "—";
@@ -258,7 +259,7 @@
         "Настройте виртуальную экономику арены. Реальных денежных операций нет.",
       Валюта: "Символ меняет только оформление виртуального баланса.",
       Карты:
-        "Двенадцать миров с разным окружением и частицами. Переключайтесь прямо во время игры.",
+        "Шестнадцать миров с разным окружением и частицами. Переключайтесь прямо во время игры.",
       Камера:
         "Колёсико мыши меняет масштаб. Автомасштабирование учитывает рост змейки.",
       Графика:
@@ -299,7 +300,7 @@
         node(
           "div",
           "notice",
-          "Cash Out завершает раунд. «Играть снова» возвращает стартовый размер и начальный виртуальный баланс.",
+          "Масса и баланс начисляются только за съеденные частицы. Бонус и доля баланса соперника находятся в его выпавшей еде. Cash Out завершает раунд.",
         ),
       );
     $("saveStatus").textContent = S.storageOK
@@ -629,11 +630,16 @@
     if (e.target.matches("input,select,textarea") || e.repeat) return;
     if (e.code === "KeyA") $("autoBtn").click();
     else if (e.code === "KeyV") recording();
-    else if (e.code === "KeyC" && !e.ctrlKey && !e.metaKey && !e.altKey && !game.menuOpen) {
+    else if (
+      e.code === "KeyC" &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !game.menuOpen
+    ) {
       e.preventDefault();
       cashOut();
-    }
-    else if (e.code === "Space") {
+    } else if (e.code === "Space") {
       e.preventDefault();
       pause();
     }

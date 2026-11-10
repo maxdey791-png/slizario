@@ -1522,3 +1522,10 @@ body {
     bottom: max(19px, env(safe-area-inset-bottom));
   }
 }
+.light-world .brand {
+  color: #243e46;
+}
+.light-world .tag,
+.light-world .live {
+  color: #45616c;
+}
