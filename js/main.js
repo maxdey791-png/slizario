@@ -485,7 +485,7 @@
     game.endRound();
     showResult("death", p.balance, reason);
   };
-  $("cashBtn").onclick = () => {
+  function cashOut() {
     if (!S.canCashOut(game)) return;
     const amount = game.player.balance;
     game.totalCashed += amount;
@@ -493,7 +493,9 @@
     game.endRound();
     showResult("cash", amount);
     refreshHUD();
-  };
+  }
+  $("cashBtn").onclick = cashOut;
+  $("cashBtn").title = "Cash Out · C (С в русской раскладке)";
   $("restartBtn").onclick = () => {
     start();
   };
@@ -627,6 +629,10 @@
     if (e.target.matches("input,select,textarea") || e.repeat) return;
     if (e.code === "KeyA") $("autoBtn").click();
     else if (e.code === "KeyV") recording();
+    else if (e.code === "KeyC" && !e.ctrlKey && !e.metaKey && !e.altKey && !game.menuOpen) {
+      e.preventDefault();
+      cashOut();
+    }
     else if (e.code === "Space") {
       e.preventDefault();
       pause();

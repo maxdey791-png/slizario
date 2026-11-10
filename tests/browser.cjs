@@ -313,6 +313,21 @@ const server = http.createServer((req, res) => {
       assert.equal(state.balance, 1000);
       assert.equal(state.run, 0);
     });
+    await test("Cash Out hotkey works with hidden OBS HUD, honors threshold and ignores editing/modifiers", async()=>{
+      await fresh({botCount:0,cashMin:2000});
+      await page.evaluate(()=>{slizario.menuOpen=false;slizario.paused=true;});
+      await page.keyboard.press('v');await page.keyboard.press('c');
+      assert(await page.evaluate(()=>slizario.recording&&!slizario.roundEnded));
+      await page.keyboard.press('v');await page.click('#settingsBtn');
+      await page.evaluate(()=>{slizario.player.balance=2500;slizario.onHUD();});
+      await page.locator('#setting-playerName').focus();await page.keyboard.press('c');
+      assert(!await page.evaluate(()=>slizario.roundEnded));
+      await page.click('#closeSettings');await page.keyboard.press('v');
+      await page.keyboard.press('Control+c');assert(!await page.evaluate(()=>slizario.roundEnded));
+      await page.dispatchEvent('body','keydown',{code:'KeyC',key:'с',bubbles:true});
+      assert(await page.evaluate(()=>slizario.roundEnded&&!slizario.recording&&!document.getElementById('resultOverlay').hidden&&slizario.runCashed===2500));
+      await page.keyboard.press('c');assert.equal(await page.evaluate(()=>slizario.runCashed),2500);
+    });
     await test("Progress is relative to round start and supports every currency", async () => {
       await fresh({ botCount: 0, startBalance: 1000, cashMin: 5000 });
       const r = await page.evaluate(() => {
